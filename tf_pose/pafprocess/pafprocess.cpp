@@ -19,6 +19,7 @@ bool comp_candidate(ConnectionCandidate a, ConnectionCandidate b);
 int process_paf(int p1, int p2, int p3, float *peaks, int h1, int h2, int h3, float *heatmap, int f1, int f2, int f3, float *pafmap) {
 //    const int THRE_CNT = 4;
 //    const double THRESH_PAF = 0.40;
+// ax: for every joint save a list with position, where the peak is above a threshold
     vector<Peak> peak_infos[NUM_PART];
     int peak_cnt = 0;
     for (int part_id = 0; part_id < NUM_PART; part_id ++) {
@@ -46,6 +47,7 @@ int process_paf(int p1, int p2, int p3, float *peaks, int h1, int h2, int h3, fl
     // Start to Connect
     vector<Connection> connection_all[COCOPAIRS_SIZE];
     for (int pair_id = 0; pair_id < COCOPAIRS_SIZE; pair_id ++) {
+        //ax: get list of possible connections
         vector<ConnectionCandidate> candidates;
         vector<Peak>& peak_a_list = peak_infos[COCOPAIRS[pair_id][0]];
         vector<Peak>& peak_b_list = peak_infos[COCOPAIRS[pair_id][1]];
@@ -94,6 +96,7 @@ int process_paf(int p1, int p2, int p3, float *peaks, int h1, int h2, int h3, fl
         }
 
         vector<Connection>& conns = connection_all[pair_id];
+        // sort by score
         sort(candidates.begin(), candidates.end(), comp_candidate);
         for (int c_id = 0; c_id < (int) candidates.size(); c_id ++) {
             ConnectionCandidate& candidate = candidates[c_id];
@@ -212,7 +215,13 @@ int get_part_y(int cid) {
 float get_part_score(int cid) {
     return peak_infos_line[cid].score;
 }
-
+/**
+ * pafmap: all PAF maps h,w,numberof limbs times 2 (u,v)
+ * id of the first joint
+ * id of the second joint
+ *
+ *
+ * */
 vector<VectorXY> get_paf_vectors(float *pafmap, const int& ch_id1, const int& ch_id2, int& f2, int& f3, Peak& peak1, Peak& peak2) {
     vector<VectorXY> paf_vectors;
 

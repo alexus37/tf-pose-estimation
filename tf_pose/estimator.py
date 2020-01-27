@@ -331,8 +331,6 @@ class TfPoseEstimator:
         tf.import_graph_def(graph_def, name='TfPoseEstimator')
         self.persistent_sess = tf.Session(graph=self.graph, config=tf_config)
 
-        for ts in [n.name for n in tf.get_default_graph().as_graph_def().node]:
-            print(ts)
 
         self.tensor_image = self.graph.get_tensor_by_name('TfPoseEstimator/image:0')
         self.tensor_output = self.graph.get_tensor_by_name('TfPoseEstimator/Openpose/concat_stage7:0')
@@ -353,7 +351,7 @@ class TfPoseEstimator:
         self.tensor_peaks = tf.where(tf.equal(gaussian_heatMat, max_pooled_in_tensor), gaussian_heatMat,
                                      tf.zeros_like(gaussian_heatMat))
 
-        self.heatMat = self.pafMat = None
+        self.heatMat = self.pafMat = self.peaks = None
 
         # warm-up
         self.persistent_sess.run(tf.variables_initializer(
@@ -554,14 +552,14 @@ class TfPoseEstimator:
             [self.tensor_peaks, self.tensor_heatMat_up, self.tensor_pafMat_up], feed_dict={
                 self.tensor_image: [img], self.upsample_size: upsample_size
             })
-        peaks = peaks[0]
+        self.peaks = peaks[0]
         self.heatMat = heatMat_up[0]
         self.pafMat = pafMat_up[0]
         logger.debug('inference- heatMat=%dx%d pafMat=%dx%d' % (
             self.heatMat.shape[1], self.heatMat.shape[0], self.pafMat.shape[1], self.pafMat.shape[0]))
 
         t = time.time()
-        humans = PoseEstimator.estimate_paf(peaks, self.heatMat, self.pafMat)
+        humans = PoseEstimator.estimate_paf(self.peaks, self.heatMat, self.pafMat)
         logger.debug('estimate time=%.5f' % (time.time() - t))
         return humans
 
