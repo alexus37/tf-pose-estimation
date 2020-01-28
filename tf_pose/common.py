@@ -110,8 +110,8 @@ CocoColors = [[255, 0, 0], [255, 85, 0], [255, 170, 0], [255, 255, 0], [170, 255
               [170, 0, 255], [255, 0, 255], [255, 0, 170], [255, 0, 85]]
 
 
-def read_imgfile(path, width=None, height=None):
-    val_image = cv2.imread(path, cv2.IMREAD_COLOR)
+def read_imgfile(path, width=None, height=None, image_type=cv2.IMREAD_COLOR):
+    val_image = cv2.imread(path, image_type)
     if width is not None and height is not None:
         val_image = cv2.resize(val_image, (width, height))
     return val_image
