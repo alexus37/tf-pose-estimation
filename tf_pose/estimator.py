@@ -29,6 +29,7 @@ ch.setFormatter(formatter)
 logger.addHandler(ch)
 logger.setLevel(logging.INFO)
 
+NOISE_WIDTH, NOISE_HEIGHT = 200, 400
 
 def _round(v):
     return int(round(v))
@@ -303,7 +304,7 @@ class PoseEstimator:
 class TfPoseEstimator:
     # TODO : multi-scale
 
-    def __init__(self, graph_path, target_size=(320, 240), tf_config=None, trt_bool=False):
+    def __init__(self, graph_path, target_size=(320, 240), tf_config=None, trt_bool=False, input_overwrite_tensor=None):
         self.target_size = target_size
 
         # load graph
@@ -328,11 +329,23 @@ class TfPoseEstimator:
             )
 
         self.graph = tf.get_default_graph()
-        tf.import_graph_def(graph_def, name='TfPoseEstimator')
+        if input_overwrite_tensor is None:
+            tf.import_graph_def(graph_def, name='TfPoseEstimator')
+
+        else:
+            print('With input overwrite')
+            tf.import_graph_def(
+                graph_def,
+                name='TfPoseEstimator',
+                input_map={"image": input_overwrite_tensor}
+            )
         self.persistent_sess = tf.Session(graph=self.graph, config=tf_config)
-
-
-        self.tensor_image = self.graph.get_tensor_by_name('TfPoseEstimator/image:0')
+        self.input_overwrite_flag = False
+        if input_overwrite_tensor is None:
+            self.tensor_image = self.graph.get_tensor_by_name('TfPoseEstimator/image:0')
+        else:
+            self.tensor_image = input_overwrite_tensor
+            self.input_overwrite_flag = True
         self.tensor_output = self.graph.get_tensor_by_name('TfPoseEstimator/Openpose/concat_stage7:0')
         self.tensor_heatMat = self.tensor_output[:, :, :, :19]
         self.tensor_pafMat = self.tensor_output[:, :, :, 19:]
@@ -360,26 +373,35 @@ class TfPoseEstimator:
                                       self.persistent_sess.run(tf.report_uninitialized_variables())]
              ])
         )
-        self.persistent_sess.run(
-            [self.tensor_peaks, self.tensor_heatMat_up, self.tensor_pafMat_up],
+        if not self.input_overwrite_flag:
             feed_dict={
                 self.tensor_image: [np.ndarray(shape=(target_size[1], target_size[0], 3), dtype=np.float32)],
                 self.upsample_size: [target_size[1], target_size[0]]
             }
-        )
-        self.persistent_sess.run(
-            [self.tensor_peaks, self.tensor_heatMat_up, self.tensor_pafMat_up],
+        else:
+            self.universal_noise = self.graph.get_tensor_by_name('universal_noise:0')
+            self.transforms = self.graph.get_tensor_by_name('2d_transform:0')
             feed_dict={
                 self.tensor_image: [np.ndarray(shape=(target_size[1], target_size[0], 3), dtype=np.float32)],
-                self.upsample_size: [target_size[1] // 2, target_size[0] // 2]
+                self.upsample_size: [target_size[1], target_size[0]],
+                self.universal_noise: [np.zeros((NOISE_HEIGHT, NOISE_WIDTH, 3))],
+                self.transforms: [[1, 0, 0, 0, 1, 0, 0, 0]],
             }
-        )
+
+            pass
         self.persistent_sess.run(
             [self.tensor_peaks, self.tensor_heatMat_up, self.tensor_pafMat_up],
-            feed_dict={
-                self.tensor_image: [np.ndarray(shape=(target_size[1], target_size[0], 3), dtype=np.float32)],
-                self.upsample_size: [target_size[1] // 4, target_size[0] // 4]
-            }
+            feed_dict=feed_dict
+        )
+        feed_dict[self.upsample_size] = [target_size[1] // 2, target_size[0] // 2]
+        self.persistent_sess.run(
+            [self.tensor_peaks, self.tensor_heatMat_up, self.tensor_pafMat_up],
+            feed_dict=feed_dict
+        )
+        feed_dict[self.upsample_size] = [target_size[1] // 4, target_size[0] // 4]
+        self.persistent_sess.run(
+            [self.tensor_peaks, self.tensor_heatMat_up, self.tensor_pafMat_up],
+            feed_dict=feed_dict
         )
 
         # logs
@@ -530,7 +552,7 @@ class TfPoseEstimator:
         else:
             return cropped
 
-    def inference(self, npimg, resize_to_default=True, upsample_size=1.0):
+    def inference(self, npimg, resize_to_default=True, upsample_size=1.0, universal_noise=[np.zeros((NOISE_HEIGHT, NOISE_WIDTH, 3))], transforms=[[1, 0, 0, 0, 1, 0, 0, 0]]):
         if npimg is None:
             raise Exception('The image is not valid. Please check your image exists.')
 
@@ -548,10 +570,19 @@ class TfPoseEstimator:
         img = npimg
         if resize_to_default:
             img = self._get_scaled_img(npimg, None)[0][0]
-        peaks, heatMat_up, pafMat_up = self.persistent_sess.run(
-            [self.tensor_peaks, self.tensor_heatMat_up, self.tensor_pafMat_up], feed_dict={
+        if self.input_overwrite_flag:
+            feed_dict = {
+                self.tensor_image: [img],
+                self.upsample_size: upsample_size,
+                self.universal_noise: universal_noise,
+                self.transforms: transforms,
+            }
+        else:
+            feed_dict = {
                 self.tensor_image: [img], self.upsample_size: upsample_size
-            })
+            }
+        peaks, heatMat_up, pafMat_up = self.persistent_sess.run(
+            [self.tensor_peaks, self.tensor_heatMat_up, self.tensor_pafMat_up], feed_dict=feed_dict)
         self.peaks = peaks[0]
         self.heatMat = heatMat_up[0]
         self.pafMat = pafMat_up[0]
