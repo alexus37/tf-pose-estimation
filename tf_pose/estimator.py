@@ -304,7 +304,7 @@ class PoseEstimator:
 class TfPoseEstimator:
     # TODO : multi-scale
 
-    def __init__(self, graph_path, target_size=(320, 240), tf_config=None, trt_bool=False, input_overwrite_tensor=None):
+    def __init__(self, graph_path, target_size=(320, 240), tf_config=None, trt_bool=False, input_overwrite_tensor=None, warped_universal_noise=None, sample_image=None):
         self.target_size = target_size
 
         # load graph
@@ -346,6 +346,7 @@ class TfPoseEstimator:
         else:
             self.tensor_image = input_overwrite_tensor
             self.input_overwrite_flag = True
+            self.sample_image = sample_image
         self.tensor_output = self.graph.get_tensor_by_name('TfPoseEstimator/Openpose/concat_stage7:0')
         self.tensor_heatMat = self.tensor_output[:, :, :, :19]
         self.tensor_pafMat = self.tensor_output[:, :, :, 19:]
@@ -381,11 +382,13 @@ class TfPoseEstimator:
         else:
             self.universal_noise = self.graph.get_tensor_by_name('universal_noise:0')
             self.transforms = self.graph.get_tensor_by_name('2d_transform:0')
+            self.mask = self.graph.get_tensor_by_name('mask:0')
             feed_dict={
                 self.tensor_image: [np.ndarray(shape=(target_size[1], target_size[0], 3), dtype=np.float32)],
                 self.upsample_size: [target_size[1], target_size[0]],
                 self.universal_noise: [np.zeros((NOISE_HEIGHT, NOISE_WIDTH, 3))],
                 self.transforms: [[1, 0, 0, 0, 1, 0, 0, 0]],
+                self.mask: [np.zeros((target_size[0], target_size[1], 3))]
             }
 
             pass
@@ -428,6 +431,39 @@ class TfPoseEstimator:
     def draw_humans(npimg, humans, imgcopy=False):
         if imgcopy:
             npimg = np.copy(npimg)
+        image_h, image_w = npimg.shape[:2]
+        centers = {}
+        for human in humans:
+            # draw point
+            for i in range(common.CocoPart.Background.value):
+                if i not in human.body_parts.keys():
+                    continue
+
+                body_part = human.body_parts[i]
+                center = (int(body_part.x * image_w + 0.5), int(body_part.y * image_h + 0.5))
+                centers[i] = center
+                cv2.circle(npimg, center, 3, common.CocoColors[i], thickness=3, lineType=8, shift=0)
+
+            # draw line
+            for pair_order, pair in enumerate(common.CocoPairsRender):
+                if pair[0] not in human.body_parts.keys() or pair[1] not in human.body_parts.keys():
+                    continue
+
+                # npimg = cv2.line(npimg, centers[pair[0]], centers[pair[1]], common.CocoColors[pair_order], 3)
+                cv2.line(npimg, centers[pair[0]], centers[pair[1]], common.CocoColors[pair_order], 3)
+
+        return npimg
+    def draw_humans_warped(self, sample_image, humans, universal_noise, transforms, mask):
+        feed_dict={
+            self.sample_image: sample_image,
+            self.universal_noise: universal_noise,
+            self.transforms: transforms,
+            self.mask: mask
+        }
+        npimg = self.persistent_sess.run(
+            [self.tensor_image],
+            feed_dict=feed_dict
+        )[0][0]
         image_h, image_w = npimg.shape[:2]
         centers = {}
         for human in humans:
@@ -552,7 +588,14 @@ class TfPoseEstimator:
         else:
             return cropped
 
-    def inference(self, npimg, resize_to_default=True, upsample_size=1.0, universal_noise=[np.zeros((NOISE_HEIGHT, NOISE_WIDTH, 3))], transforms=[[1, 0, 0, 0, 1, 0, 0, 0]]):
+    def inference(self,
+        npimg,
+        resize_to_default=True,
+        upsample_size=1.0,
+        universal_noise=[np.zeros((NOISE_HEIGHT, NOISE_WIDTH, 3))],
+        transforms=[[1, 0, 0, 0, 1, 0, 0, 0]],
+        mask=None):
+
         if npimg is None:
             raise Exception('The image is not valid. Please check your image exists.')
 
@@ -571,15 +614,21 @@ class TfPoseEstimator:
         if resize_to_default:
             img = self._get_scaled_img(npimg, None)[0][0]
         if self.input_overwrite_flag:
+            print('inference with overwrite')
+            usedMask = mask
+            if usedMask is None:
+                usedMask = [np.zeros((self.target_size[1], self.target_size[0], 3))]
             feed_dict = {
-                self.tensor_image: [img],
+                self.sample_image: [img],
                 self.upsample_size: upsample_size,
                 self.universal_noise: universal_noise,
                 self.transforms: transforms,
+                self.mask: usedMask
             }
         else:
             feed_dict = {
-                self.tensor_image: [img], self.upsample_size: upsample_size
+                self.tensor_image: [img],
+                self.upsample_size: upsample_size
             }
         peaks, heatMat_up, pafMat_up = self.persistent_sess.run(
             [self.tensor_peaks, self.tensor_heatMat_up, self.tensor_pafMat_up], feed_dict=feed_dict)
