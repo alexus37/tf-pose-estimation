@@ -98,6 +98,7 @@ int process_paf(int p1, int p2, int p3, float *peaks, int h1, int h2, int h3, fl
         vector<Connection>& conns = connection_all[pair_id];
         // sort by score
         sort(candidates.begin(), candidates.end(), comp_candidate);
+        // make a biparted matching by taking the biggest scoring match first
         for (int c_id = 0; c_id < (int) candidates.size(); c_id ++) {
             ConnectionCandidate& candidate = candidates[c_id];
             bool assigned = false;

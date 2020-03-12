@@ -333,7 +333,7 @@ class TfPoseEstimator:
             tf.import_graph_def(graph_def, name='TfPoseEstimator')
 
         else:
-            print('With input overwrite')
+            logger.info('With input overwrite')
             tf.import_graph_def(
                 graph_def,
                 name='TfPoseEstimator',
@@ -614,7 +614,6 @@ class TfPoseEstimator:
         if resize_to_default:
             img = self._get_scaled_img(npimg, None)[0][0]
         if self.input_overwrite_flag:
-            print('inference with overwrite')
             usedMask = mask
             if usedMask is None:
                 usedMask = [np.zeros((self.target_size[1], self.target_size[0], 3))]
